@@ -1577,7 +1577,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         description: '',
         date: '',
         identifier: '',
-        subject: ''
+        subject: '',
+        rights: '',
+        source: ''
       },
       searchTerm: '',
       replaceTerm: '',
@@ -2182,9 +2184,17 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       return '';
     }
 
+
     function setDcValue(parent, key, value) {
-      const k = dcKey(parent, key);
-      if (!parent[k]) {
+      const isDc = /^dc:/.test(key);
+      const bare = key.replace(/^dc:/, '');
+      if (isDc && parent[key] === undefined && parent[bare] !== undefined) {
+        parent[key] = parent[bare];
+        delete parent[bare];
+      }
+
+      const k = parent[key] !== undefined ? key : (isDc ? key : dcKey(parent, key));
+      if (parent[k] === undefined) {
         parent[k] = value;
         return;
       }
@@ -2198,6 +2208,69 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         return;
       }
       parent[k] = value;
+    }
+
+    function toIdentifierObject(entry) {
+      if (entry == null) return { value: '', id: '' };
+      if (typeof entry === 'string') return { value: entry.trim(), id: '' };
+      if (typeof entry === 'object') {
+        return {
+          value: String(entry['#text'] || '').trim(),
+          id: String(entry['@_id'] || '').trim()
+        };
+      }
+      return { value: '', id: '' };
+    }
+
+    function sanitizeUuid(raw) {
+      const match = String(raw || '').trim().match(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}/);
+      return match ? match[0].toLowerCase() : '';
+    }
+
+    function generateUuid() {
+      if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+    }
+
+    function ensurePrimaryIdentifier(metadataNode, metadataInput = {}) {
+      const identifierKey = 'dc:identifier';
+      const existingIdentifiers = normalizeArray(metadataNode[identifierKey] ?? metadataNode.identifier).map(toIdentifierObject);
+      const uniqueIdentifierId = String(metadataInput.uniqueIdentifierId || metadataInput.packageUniqueIdentifierId || '').trim()
+        || String(metadataInput.uniqueIdentifier || '').trim();
+
+      const byUniqueId = uniqueIdentifierId
+        ? existingIdentifiers.find(item => item.id === uniqueIdentifierId && item.value)
+        : null;
+      const firstValid = existingIdentifiers.find(item => item.value);
+      const metadataIdentifier = String(metadataInput.identifier || '').trim();
+      const reusableUuid = sanitizeUuid(metadataIdentifier)
+        || sanitizeUuid(byUniqueId?.value)
+        || sanitizeUuid(firstValid?.value)
+        || sanitizeUuid(existingIdentifiers.map(i => i.value).find(Boolean));
+
+      const finalIdValue = metadataIdentifier
+        || (reusableUuid ? `urn:uuid:${reusableUuid}` : `urn:uuid:${generateUuid()}`);
+
+      metadataNode[identifierKey] = [{ '@_id': 'bookid', '#text': finalIdValue }];
+      return finalIdValue;
+    }
+
+    function ensureOpfPackageShape(opfXml, metadata = {}) {
+      if (!opfXml.package || typeof opfXml.package !== 'object') opfXml.package = {};
+      const pkg = opfXml.package;
+      pkg['@_xmlns'] = 'http://www.idpf.org/2007/opf';
+      pkg['@_xmlns:dc'] = 'http://purl.org/dc/elements/1.1/';
+      pkg['@_version'] = String(pkg['@_version'] || '3.0');
+      pkg['@_unique-identifier'] = 'bookid';
+      const langCandidate = String(metadata.language || '').trim();
+      if (langCandidate) pkg['@_xml:lang'] = langCandidate;
+      else if (!pkg['@_xml:lang']) pkg['@_xml:lang'] = 'fr';
+      if (!pkg.metadata || typeof pkg.metadata !== 'object') pkg.metadata = {};
+      return pkg;
     }
 
     // ── Toast notifications ───────────────────────────────────────────────────
@@ -2680,6 +2753,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         state.replacedImages = {};
         state.originalFiles  = { ...textFiles }; // snapshot for diff
         state.selectedPath = state.chapterPaths[0] || allPaths.find(isChapterLike) || opfPath;
+        const packageUniqueIdentifierId = String(pkg['@_unique-identifier'] || '').trim();
+        const identifiers = normalizeArray(metaNode[dcKey(metaNode, 'dc:identifier')]).map(toIdentifierObject);
+        const primaryIdentifier = identifiers.find(item => item.id === packageUniqueIdentifierId && item.value)
+          || identifiers.find(item => item.value)
+          || { value: '' };
+
         state.metadata = {
           title:       readDcValue(metaNode[dcKey(metaNode, 'dc:title')]),
           creator:     readDcValue(metaNode[dcKey(metaNode, 'dc:creator')]),
@@ -2687,8 +2766,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
           publisher:   readDcValue(metaNode[dcKey(metaNode, 'dc:publisher')]),
           description: readDcValue(metaNode[dcKey(metaNode, 'dc:description')]),
           date:        readDcValue(metaNode[dcKey(metaNode, 'dc:date')]),
-          identifier:  readDcValue(metaNode[dcKey(metaNode, 'dc:identifier')]),
-          subject:     readDcValue(metaNode[dcKey(metaNode, 'dc:subject')])
+          identifier:  primaryIdentifier.value,
+          subject:     readDcValue(metaNode[dcKey(metaNode, 'dc:subject')]),
+          rights:      readDcValue(metaNode[dcKey(metaNode, 'dc:rights')]),
+          source:      readDcValue(metaNode[dcKey(metaNode, 'dc:source')]),
+          packageUniqueIdentifierId
         };
 
         appState.historyOps = [];
@@ -2902,16 +2984,35 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     function applyMetadataToOpfText(opfRaw, metadata) {
       if (!opfRaw) return opfRaw;
       const opfXml = parser.parse(opfRaw);
-      const metadataNode = opfXml?.package?.metadata;
-      if (!metadataNode) return opfRaw;
-      setDcValue(metadataNode, 'dc:title', metadata.title);
-      setDcValue(metadataNode, 'dc:creator', metadata.creator);
-      setDcValue(metadataNode, 'dc:language', metadata.language);
-      setDcValue(metadataNode, 'dc:publisher', metadata.publisher);
-      setDcValue(metadataNode, 'dc:description', metadata.description);
-      setDcValue(metadataNode, 'dc:date', metadata.date);
-      setDcValue(metadataNode, 'dc:identifier', metadata.identifier);
-      setDcValue(metadataNode, 'dc:subject', metadata.subject);
+      const pkg = ensureOpfPackageShape(opfXml, metadata);
+      const metadataNode = pkg.metadata;
+
+      const normalizedMetadata = {
+        ...metadata,
+        title: String(metadata?.title || '').trim() || 'Titre inconnu',
+        language: String(metadata?.language || '').trim() || 'fr'
+      };
+
+      setDcValue(metadataNode, 'dc:title', normalizedMetadata.title);
+      setDcValue(metadataNode, 'dc:creator', String(normalizedMetadata.creator || '').trim());
+      setDcValue(metadataNode, 'dc:language', normalizedMetadata.language);
+      setDcValue(metadataNode, 'dc:publisher', String(normalizedMetadata.publisher || '').trim());
+      setDcValue(metadataNode, 'dc:description', String(normalizedMetadata.description || '').trim());
+      setDcValue(metadataNode, 'dc:date', String(normalizedMetadata.date || '').trim());
+      setDcValue(metadataNode, 'dc:subject', String(normalizedMetadata.subject || '').trim());
+      setDcValue(metadataNode, 'dc:rights', String(normalizedMetadata.rights || '').trim());
+      setDcValue(metadataNode, 'dc:source', String(normalizedMetadata.source || '').trim());
+
+      const primaryIdentifier = ensurePrimaryIdentifier(metadataNode, {
+        ...normalizedMetadata,
+        packageUniqueIdentifierId: metadata?.packageUniqueIdentifierId || pkg['@_unique-identifier'] || ''
+      });
+      normalizedMetadata.identifier = primaryIdentifier;
+      setDcValue(metadataNode, 'dc:identifier', primaryIdentifier);
+
+      pkg['@_unique-identifier'] = 'bookid';
+      pkg['@_xml:lang'] = normalizedMetadata.language;
+
       return `<?xml version="1.0" encoding="UTF-8"?>
 ${builder.build(opfXml)}`;
     }
@@ -4036,7 +4137,8 @@ span.br-fade { color: VAR_FADE_LIGHT; }
       state.replacedImages = {};
       state.selectedPath   = '';
       state.metadata       = { title:'', creator:'', language:'', publisher:'',
-                                description:'', date:'', identifier:'', subject:'' };
+                                description:'', date:'', identifier:'', subject:'',
+                                rights:'', source:'' };
       state.bionicOriginals = null;
       state.bionicApplied   = false;
       state.isDirty         = false;
