@@ -61,7 +61,24 @@
     .nav-group { margin-top: 6px; }
     .nav-group-title { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-muted); padding:8px 10px 6px; font-weight:700; }
     .history-list { display:flex; flex-direction:column; gap:8px; max-height:420px; overflow:auto; }
-    .history-item { border:1px solid var(--border-color); border-radius:10px; padding:8px; background:var(--bg-card-2); display:grid; grid-template-columns:auto 1fr auto; gap:8px; align-items:center; }
+    .history-item { border:1px solid var(--border-color); border-radius:10px; padding:9px; background:var(--bg-card-2); display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:flex-start; }
+    .history-main { min-width: 0; display: grid; gap: 2px; }
+    .history-topline { display:flex; align-items:center; gap:8px; min-width:0; }
+    .history-title { font-weight:700; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .history-sub { font-size:12px; color:var(--text-muted); }
+    .history-badge {
+      font-size: 10.5px;
+      line-height: 1;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: 5px 7px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      flex: 0 0 auto;
+    }
+    .history-badge-active { color: var(--success); background: rgba(52,211,153,0.1); border-color: rgba(52,211,153,0.35); }
+    .history-badge-off { color: var(--text-muted); background: rgba(148,163,184,0.1); border-color: var(--border-strong); }
     .history-actions { display:flex; gap:4px; }
     .mini-btn { border:1px solid var(--border-strong); background:var(--bg-card); color:var(--text-primary); border-radius:8px; padding:4px 7px; cursor:pointer; }
 
@@ -184,9 +201,7 @@
       z-index: 10;
     }
 
-    .header-left {
-      min-width: 220px;
-    }
+    .header-left { min-width: 0; }
 
     .header-left h2 {
       margin: 0;
@@ -214,6 +229,8 @@
     .header-center {
       justify-content: center;
       flex-wrap: nowrap;
+      overflow-x: auto;
+      padding-bottom: 1px;
     }
 
     .header-right {
@@ -425,7 +442,7 @@
 
     body[data-theme="light"] .btn:disabled,
     body[data-theme="sepia"] .btn:disabled {
-      opacity: 1;
+      opacity: 0.8;
       color: var(--text-muted);
       background: var(--bg-card-2);
       border-color: var(--border-strong);
@@ -960,7 +977,7 @@
         justify-content: flex-start;
       }
       .header-right {
-        justify-content: flex-start;
+        justify-content: space-between;
       }
     }
 
@@ -1858,13 +1875,43 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       return JSON.parse(JSON.stringify(book || {}));
     }
 
+    function getHistoryMetaLabel(op) {
+      if (op.type === 'replaceText') return 'Recherche / remplacement';
+      if (op.type === 'metadataUpdate') return 'Métadonnées';
+      if (op.type === 'imageReplace') return 'Images';
+      if (op.type === 'chapterEdit') return 'Éditeur chapitre';
+      if (op.type === 'bionicApply' || op.type === 'beelineApply') return 'Lecture assistée';
+      if (op.type === 'kindleOptimize') return 'Compatibilité Kindle';
+      return op.type;
+    }
+
     function historyLabel(op) {
       if (op.type === 'replaceText') return `Remplacement : "${op.search || ''}" → "${op.replace || ''}"`;
-      if (op.type === 'metadataUpdate') return 'Métadonnées modifiées';
+      if (op.type === 'metadataUpdate') {
+        const changed = Object.keys(op.metadata || {}).filter(k => (op.metadata || {})[k] !== undefined && (op.metadata || {})[k] !== null && String((op.metadata || {})[k]).trim() !== '');
+        if (changed.length) {
+          const labels = { title: 'titre', creator: 'auteur', language: 'langue', publisher: 'éditeur', description: 'description', date: 'date', identifier: 'identifiant', subject: 'sujet' };
+          const picked = changed.slice(0, 2).map(k => labels[k] || k).join(' / ');
+          return `Métadonnées : ${picked}`;
+        }
+        return 'Métadonnées modifiées';
+      }
       if (op.type === 'imageReplace') return `Image remplacée : ${op.path?.split('/').pop() || ''}`;
-      if (op.type === 'chapterEdit') return `Édition chapitre : ${op.filePath?.split('/').pop() || ''}`;
-      if (op.type === 'bionicApply') return 'Bionic';
-      if (op.type === 'beelineApply') return 'BeeLine';
+      if (op.type === 'chapterEdit') return `Chapitre modifié : ${op.filePath?.split('/').pop() || ''}`;
+      if (op.type === 'bionicApply') {
+        const opts = op.opts || {};
+        const rateName = RATE_LABELS[String(opts.rate || 2)] || 'Moyen';
+        const opacity = Number.isFinite(Number(opts.opacity)) ? Number(opts.opacity) : 100;
+        const details = [rateName.toLowerCase()];
+        if (opacity < 100) details.push(`opacité ${opacity}%`);
+        if (opts.kindle) details.push('Kindle');
+        return `Bionic : ${details.join(' • ')}`;
+      }
+      if (op.type === 'beelineApply') {
+        const opts = op.opts || {};
+        const intensity = Number.isFinite(Number(opts.beelineIntensity)) ? Number(opts.beelineIntensity) : 100;
+        return `BeeLine : ${opts.beelinePalette || 'bright'}${intensity < 100 ? ` • ${intensity}%` : ''}`;
+      }
       if (op.type === 'kindleOptimize') return 'Optimisation Kindle';
       return op.type;
     }
@@ -1929,6 +1976,38 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       return ['bionicApply', 'beelineApply', 'kindleOptimize'].includes(op?.type);
     }
 
+    function getActiveReadingModeFromHistory() {
+      for (let i = appState.historyOps.length - 1; i >= 0; i--) {
+        const op = appState.historyOps[i];
+        if (!op?.enabled) continue;
+        if (op.type === 'bionicApply') return 'bionic';
+        if (op.type === 'beelineApply') return 'beeline';
+      }
+      return 'none';
+    }
+
+    function isKindleOptimizeActive() {
+      return appState.historyOps.some(op => op?.enabled && op.type === 'kindleOptimize');
+    }
+
+    function syncLegacyStateFromWorkingBook() {
+      const rebuilt = appState.workingBook || {};
+      // NOTE: Legacy `state` is still used by most UI rendering hooks.
+      // Keep these assignments centralized after rebuild to avoid drift.
+      state.textFiles = { ...(rebuilt.textFiles || {}) };
+      state.metadata = { ...state.metadata, ...(rebuilt.metadata || {}) };
+      state.replacedImages = { ...(rebuilt.replacedImages || {}) };
+    }
+
+    function syncReadingUiFromHistory() {
+      const mode = getActiveReadingModeFromHistory();
+      setReadingMode(mode);
+      if (el.bionicKindle) el.bionicKindle.checked = isKindleOptimizeActive();
+      el.bionicResetBtn.disabled = (mode === 'none' && !isKindleOptimizeActive());
+      populateBionicSelect();
+      renderBionicPreview();
+    }
+
     function shouldApplyReplaceTextToPath(op, path) {
       if (!path || !op) return false;
       if (op.searchAllFiles) return isChapterLike(path);
@@ -1971,14 +2050,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         catch (e) { console.error(e); showToast(`Opération ignorée (${op.type}) : ${e.message || e}`, 'warning'); }
       }
       appState.workingBook = rebuilt;
-      state.textFiles = { ...rebuilt.textFiles };
-      state.metadata = { ...state.metadata, ...rebuilt.metadata };
-      state.replacedImages = { ...rebuilt.replacedImages };
+      syncLegacyStateFromWorkingBook();
       for (const [imgPath, rep] of Object.entries(state.replacedImages)) {
         if (rep.bytes && state.zip) state.zip.file(imgPath, new Uint8Array(rep.bytes));
       }
       syncMetadataInputs();
       renderSearchResults(); renderFileList(); populateEditorSelect(); populateDiffSelect(); renderImageGallery(); renderHistoryPanel();
+      syncReadingUiFromHistory();
       const currentPreviewPath = el.previewChapterSelect.value || state.chapterPaths[0];
       if (currentPreviewPath) renderHtmlPreview(currentPreviewPath);
       markDirty();
@@ -1993,9 +2071,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       el.historyList.innerHTML = appState.historyOps.map((op) => `
         <div class="history-item">
           <input type="checkbox" ${op.enabled ? 'checked' : ''} data-h-act="${op.id}" />
-          <div><div style="font-weight:600;">${escapeHtml(historyLabel(op))}</div><div class="muted" style="font-size:12px;">${op.type}</div></div>
+          <div class="history-main">
+            <div class="history-topline">
+              <div class="history-title" title="${escapeHtml(historyLabel(op))}">${escapeHtml(historyLabel(op))}</div>
+              <span class="history-badge ${op.enabled ? 'history-badge-active' : 'history-badge-off'}">${op.enabled ? 'Actif' : 'Inactif'}</span>
+            </div>
+            <div class="history-sub">${escapeHtml(getHistoryMetaLabel(op))}</div>
+          </div>
           <div class="history-actions">
-            <button class="mini-btn" data-h-up="${op.id}">↑</button><button class="mini-btn" data-h-down="${op.id}">↓</button><button class="mini-btn" data-h-del="${op.id}">✕</button>
+            <button class="mini-btn" data-h-up="${op.id}" title="Monter">↑</button><button class="mini-btn" data-h-down="${op.id}" title="Descendre">↓</button><button class="mini-btn" data-h-del="${op.id}" title="Supprimer">✕</button>
           </div>
         </div>`).join('');
       el.historyList.querySelectorAll('[data-h-act]').forEach(i => i.addEventListener('change', () => toggleHistoryOperation(i.dataset.hAct, i.checked)));
@@ -2210,7 +2294,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         renderFileList();
         renderSearchResults();
         renderImageGallery();
-        populateBionicSelect();
+        syncReadingUiFromHistory();
         populateEditorSelect();
         populateDiffSelect();
         renderHistoryPanel();
@@ -2945,12 +3029,16 @@ span.br-fade { color: VAR_FADE_LIGHT; }
         return;
       }
 
+      const readingModeFromHistory = getActiveReadingModeFromHistory();
+      const kindleActive = isKindleOptimizeActive();
+      const readingMarker = readingModeFromHistory !== 'none' ? ' ✓' : '';
+      const kindleMarker = kindleActive ? ' ⚡' : '';
+
       for (const path of state.chapterPaths) {
         const name = path.split('/').pop();
-        const already = isAlreadyBionic(state.textFiles[path] || '');
         const opt = document.createElement('option');
         opt.value = path;
-        opt.textContent = name + (already ? ' ✓' : '');
+        opt.textContent = `${name}${readingMarker}${kindleMarker}`;
         el.bionicChapterSelect.appendChild(opt);
       }
 
@@ -2958,6 +3046,7 @@ span.br-fade { color: VAR_FADE_LIGHT; }
       el.bionicApplyBtn.disabled = (currentMode === 'none');
       renderBionicPreview();
     }
+
     let previewDebounce = null;
     function renderBionicPreview() {
       clearTimeout(previewDebounce);
@@ -3007,7 +3096,10 @@ span.br-fade { color: VAR_FADE_LIGHT; }
 
       const kindleOp = appState.historyOps.find(op => op.type === 'kindleOptimize');
       if (opts.kindle && !kindleOp) addHistoryOperation({ type: 'kindleOptimize' });
-      if (!opts.kindle && kindleOp) removeHistoryOperation(kindleOp.id);
+      if (!opts.kindle && kindleOp) {
+        appState.historyOps = appState.historyOps.filter(op => op.id !== kindleOp.id);
+        renderHistoryPanel();
+      }
 
       await rebuildWorkingBookFromHistory();
       el.bionicStatus.textContent = `✓ Mode ${opts.bionicActive ? 'Bionic' : 'BeeLine'} appliqué via historique.`;
@@ -3342,7 +3434,7 @@ span.br-fade { color: VAR_FADE_LIGHT; }
       renderFileList();
       renderSearchResults();
       renderImageGallery();
-      populateBionicSelect();
+      syncReadingUiFromHistory();
       populateEditorSelect();
       populateDiffSelect();
       renderHistoryPanel();
