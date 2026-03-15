@@ -192,7 +192,7 @@
       background: var(--bg-header);
       border-bottom: 1px solid var(--border-color);
       display: grid;
-      grid-template-columns: auto minmax(0, 1fr) auto;
+      grid-template-columns: minmax(260px, 420px) minmax(0, 1fr) auto;
       align-items: center;
       gap: 16px;
       padding: 10px 28px;
@@ -201,7 +201,11 @@
       z-index: 10;
     }
 
-    .header-left { min-width: 0; }
+    .header-left {
+      min-width: 0;
+      max-width: 420px;
+      overflow: hidden;
+    }
 
     .header-left h2 {
       margin: 0;
@@ -210,12 +214,18 @@
       color: var(--text-primary);
       font-weight: 700;
       line-height: 1.1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .header-left p {
       margin: 3px 0 0;
       color: var(--text-muted);
       font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .header-center,
