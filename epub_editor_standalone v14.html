@@ -494,6 +494,53 @@
       flex-wrap: wrap;
     }
 
+    .analysis-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 10px;
+      margin: 12px 0 14px;
+    }
+    .analysis-card {
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 11px 12px;
+      background: var(--bg-card-2);
+    }
+    .analysis-card .k {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--text-muted);
+      font-weight: 700;
+    }
+    .analysis-card .v {
+      margin-top: 4px;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+    .analysis-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .analysis-item {
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: var(--bg-card-2);
+      display: grid;
+      gap: 4px;
+    }
+    .analysis-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
     /* ── Result / file list items ── */
     .results,
     .file-list {
@@ -1020,6 +1067,7 @@
           <button data-tab="preview">👁 Aperçu rendu</button>
           <button data-tab="diff">🔀 Comparaison</button>
           <button data-tab="history">🕘 Historique</button>
+          <button data-tab="analysis">📊 Analyse</button>
         </div>
         <div class="nav-group"><div class="nav-group-title">Lecture</div>
           <button data-tab="bionic">⚡ Bionic / lecture assistée</button>
@@ -1247,6 +1295,61 @@
             <div id="historyList" class="history-list"><div class="muted">Aucune opération.</div></div>
           </section>
 
+          <section id="panel-analysis" class="card panel" style="grid-column: 1 / -1;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+              <h3 style="margin:0;">📊 Analyse de lisibilité</h3>
+              <button id="analysisRunBtn" class="btn btn-secondary">Analyser le livre</button>
+            </div>
+            <div id="analysisStatus" class="muted" style="margin-top:8px;">Charge un EPUB pour lancer l’analyse.</div>
+
+            <div id="analysisEmpty" class="muted" style="margin-top:10px;">Aucune analyse disponible.</div>
+
+            <div id="analysisResults" class="hidden" style="margin-top:8px;">
+              <div class="analysis-grid">
+                <div class="analysis-card"><div class="k">Mots</div><div class="v" id="analysisTotalWords">0</div></div>
+                <div class="analysis-card"><div class="k">Phrases</div><div class="v" id="analysisTotalSentences">0</div></div>
+                <div class="analysis-card"><div class="k">Phrase moyenne</div><div class="v" id="analysisAvgSentence">0</div></div>
+                <div class="analysis-card"><div class="k">Paragraphes longs</div><div class="v" id="analysisLongParagraphs">0</div></div>
+                <div class="analysis-card"><div class="k">Score de lisibilité</div><div class="v" id="analysisScore">0</div></div>
+              </div>
+
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-top:6px;">
+                <div class="badge" id="analysisBadge">Moyen</div>
+                <div class="muted">Dialogue : <span id="analysisDialogue">faible</span></div>
+              </div>
+
+              <div style="margin-top:12px;">
+                <div class="label" style="margin-bottom:6px;">Diagnostic</div>
+                <div id="analysisDiagnostic" class="muted">—</div>
+              </div>
+
+              <div style="margin-top:12px;">
+                <div class="label" style="margin-bottom:6px;">Conseils</div>
+                <div id="analysisAdvice" class="muted">—</div>
+              </div>
+
+              <div style="margin-top:14px;">
+                <div class="label" style="margin-bottom:6px;">Chapitres à surveiller</div>
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                  <select id="analysisChapterSelect" style="max-width:360px;"><option value="">— Sélectionner un chapitre —</option></select>
+                </div>
+                <div id="analysisChapterList" class="analysis-list"></div>
+                <div id="analysisChapterDetail" class="analysis-item hidden" style="margin-top:8px;"></div>
+              </div>
+
+              <div style="margin-top:14px;" class="analysis-grid">
+                <div>
+                  <div class="label" style="margin-bottom:6px;">Mots fréquents</div>
+                  <div id="analysisWords" class="analysis-list"></div>
+                </div>
+                <div>
+                  <div class="label" style="margin-bottom:6px;">Noms fréquents</div>
+                  <div id="analysisProperNames" class="analysis-list"></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <section id="panel-bionic" class="card panel" style="grid-column: 1 / -1;">
             <div class="bionic-layout">
               <!-- Controls -->
@@ -1468,7 +1571,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       caseSensitive: false,
       wholeWord: false,
       searchAllFiles: true,
-      isDirty: false
+      isDirty: false,
+      readabilityAnalysis: null,
+      analysisRunning: false
     };
 
     const el = {
@@ -1534,7 +1639,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         images: [document.getElementById('panel-images')],
         bionic: [document.getElementById('panel-bionic')],
         diff:   [document.getElementById('panel-diff')],
-        history:[document.getElementById('panel-history')]
+        history:[document.getElementById('panel-history')],
+        analysis:[document.getElementById('panel-analysis')]
       },
       imageGrid: document.getElementById('imageGrid'),
       imageCount: document.getElementById('imageCount'),
@@ -1573,7 +1679,25 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       historyCounts: document.getElementById('historyCounts'),
       historyList: document.getElementById('historyList'),
       historyRebuildBtn: document.getElementById('historyRebuildBtn'),
-      historyClearBtn: document.getElementById('historyClearBtn')
+      historyClearBtn: document.getElementById('historyClearBtn'),
+      analysisRunBtn: document.getElementById('analysisRunBtn'),
+      analysisStatus: document.getElementById('analysisStatus'),
+      analysisEmpty: document.getElementById('analysisEmpty'),
+      analysisResults: document.getElementById('analysisResults'),
+      analysisTotalWords: document.getElementById('analysisTotalWords'),
+      analysisTotalSentences: document.getElementById('analysisTotalSentences'),
+      analysisAvgSentence: document.getElementById('analysisAvgSentence'),
+      analysisLongParagraphs: document.getElementById('analysisLongParagraphs'),
+      analysisScore: document.getElementById('analysisScore'),
+      analysisBadge: document.getElementById('analysisBadge'),
+      analysisDialogue: document.getElementById('analysisDialogue'),
+      analysisDiagnostic: document.getElementById('analysisDiagnostic'),
+      analysisAdvice: document.getElementById('analysisAdvice'),
+      analysisChapterList: document.getElementById('analysisChapterList'),
+      analysisChapterSelect: document.getElementById('analysisChapterSelect'),
+      analysisChapterDetail: document.getElementById('analysisChapterDetail'),
+      analysisWords: document.getElementById('analysisWords'),
+      analysisProperNames: document.getElementById('analysisProperNames')
     };
 
     // ── Micro XML engine (remplace fast-xml-parser) ───────────────────────────
@@ -1740,6 +1864,275 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
     function escapeRegExp(value) {
       return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    const FRENCH_STOPWORDS = new Set([
+      'le','la','les','de','des','du','un','une','et','en','a','à','au','aux','il','elle','ils','elles','je','tu','nous','vous','on','ce','cet','cette','ces','dans','sur','sous','pour','par','avec','sans','ou','où','mais','donc','or','ni','car','que','qui','quoi','dont','ne','pas','plus','se','sa','son','ses','leur','leurs','y','en','d','l','m','t','c','n','s','est','sont','été','être','fait','comme','si','ça','cela','ici','là','ainsi','alors'
+    ]);
+
+    function formatNumber(value) { return Number(value || 0).toLocaleString('fr-FR'); }
+
+    function extractReadableTextFromHtml(html) {
+      if (!html) return '';
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      doc.querySelectorAll('script, style, noscript, template').forEach(n => n.remove());
+      doc.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+      doc.querySelectorAll('p, div, li, blockquote, h1, h2, h3, h4, h5, h6, section, article').forEach(node => {
+        if (!node.textContent || !node.textContent.trim()) return;
+        if (!node.textContent.endsWith('\n')) node.appendChild(doc.createTextNode('\n\n'));
+      });
+      return ((doc.body ? doc.body.textContent : doc.documentElement.textContent) || '')
+        .replace(/\u00A0/g, ' ')
+        .replace(/\r/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/[ \t]+/g, ' ')
+        .replace(/ ?\n ?/g, '\n')
+        .trim();
+    }
+
+    function splitWords(text) {
+      if (!text) return [];
+      return (text.match(/[\p{L}\p{M}]+(?:[-'][\p{L}\p{M}]+)*/gu) || []).map(w => w.normalize('NFC'));
+    }
+
+    function splitSentences(text) {
+      if (!text) return [];
+      return text.replace(/\s+/g, ' ').split(/(?<=[.!?…])\s+/u).map(s => s.trim()).filter(Boolean);
+    }
+
+    function computeReadabilityScore(metrics) {
+      // Score lisibilité interne (0-100): base 100, malus sur densité, bonus léger pour dialogues.
+      let score = 100;
+      if (metrics.avgSentenceWords > 22) score -= Math.min(25, (metrics.avgSentenceWords - 22) * 2.1);
+      if (metrics.avgParagraphWords > 90) score -= Math.min(22, (metrics.avgParagraphWords - 90) * 0.55);
+      const longSentenceRatio = metrics.sentences ? (metrics.longSentences / metrics.sentences) : 0;
+      const veryLongSentenceRatio = metrics.sentences ? (metrics.veryLongSentences / metrics.sentences) : 0;
+      const longParagraphRatio = metrics.paragraphCount ? (metrics.longParagraphs / metrics.paragraphCount) : 0;
+      score -= longSentenceRatio * 26;
+      score -= veryLongSentenceRatio * 24;
+      score -= longParagraphRatio * 18;
+      if (metrics.dialogueDensityLabel === 'fort') score += 4;
+      else if (metrics.dialogueDensityLabel === 'moyen') score += 2;
+      return Math.max(0, Math.min(100, Math.round(score)));
+    }
+
+    function densityLabel(ratio) {
+      if (ratio >= 0.25) return 'fort';
+      if (ratio >= 0.10) return 'moyen';
+      return 'faible';
+    }
+
+    function countFrequencies(words, minLen = 4, stopSet = FRENCH_STOPWORDS) {
+      const map = new Map();
+      for (const word of words) {
+        const token = word.toLowerCase();
+        if (token.length < minLen) continue;
+        if (stopSet && stopSet.has(token)) continue;
+        map.set(token, (map.get(token) || 0) + 1);
+      }
+      return map;
+    }
+
+    function topEntriesFromMap(map, total, limit = 10) {
+      return Array.from(map.entries()).sort((a, b) => b[1] - a[1]).slice(0, limit)
+        .map(([word, count]) => ({ word, count, frequency: total ? Math.round((count / total) * 1000) / 10 : 0 }));
+    }
+
+    function detectProperNames(sentences) {
+      const properMap = new Map();
+      for (const sentence of sentences) {
+        const tokens = splitWords(sentence);
+        tokens.forEach((token, idx) => {
+          if (!/^[A-ZÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸÆŒ]/u.test(token || '')) return;
+          if (idx === 0) return;
+          const cleaned = token.replace(/^['"«(\[]+|[.,;:!?…'"»\])]+$/gu, '');
+          if (cleaned.length < 2) return;
+          properMap.set(cleaned, (properMap.get(cleaned) || 0) + 1);
+        });
+      }
+      return properMap;
+    }
+
+    function analyzeChapterText(text, path) {
+      const paragraphs = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+      const words = splitWords(text);
+      const sentences = splitSentences(text);
+      const paragraphWordCounts = paragraphs.map(p => splitWords(p).length).filter(Boolean);
+      const sentenceWordCounts = sentences.map(s => splitWords(s).length).filter(Boolean);
+      const longParagraphs = paragraphWordCounts.filter(c => c > 120).length;
+      const longSentences = sentenceWordCounts.filter(c => c > 30).length;
+      const veryLongSentences = sentenceWordCounts.filter(c => c > 40).length;
+      const dialogueHits = sentences.filter(s => /[«»"”“„‟—–]/u.test(s)).length + paragraphs.filter(p => /[«»"”“„‟—–]/u.test(p)).length;
+      const dialogueBase = sentences.length + paragraphs.length || 1;
+      const dialogueRatio = dialogueHits / dialogueBase;
+
+      const metrics = {
+        path,
+        words: words.length,
+        sentences: sentences.length,
+        paragraphCount: paragraphs.length,
+        avgSentenceWords: sentences.length ? (words.length / sentences.length) : 0,
+        avgParagraphWords: paragraphs.length ? (words.length / paragraphs.length) : 0,
+        longParagraphs,
+        longSentences,
+        veryLongSentences,
+        dialogueDensityLabel: densityLabel(dialogueRatio),
+        dialogueRatio,
+        frequentWords: topEntriesFromMap(countFrequencies(words), words.length, 12),
+        frequentProperNames: topEntriesFromMap(detectProperNames(sentences), words.length, 10)
+      };
+      metrics.score = computeReadabilityScore(metrics);
+      return metrics;
+    }
+
+    function analyzeBookTextFiles(textFiles) {
+      const chapterStats = [];
+      const globalWordMap = new Map();
+      const globalProperMap = new Map();
+      let totalWords = 0, totalSentences = 0, totalParagraphs = 0;
+      let longParagraphs = 0, longSentences = 0, veryLongSentences = 0, dialogueAccumulator = 0;
+
+      const targets = state.chapterPaths.length ? state.chapterPaths : Object.keys(textFiles).filter(isChapterLike);
+      for (const path of targets) {
+        const html = textFiles[path];
+        if (typeof html !== 'string') continue;
+        const text = extractReadableTextFromHtml(html);
+        if (!text) continue;
+        const stats = analyzeChapterText(text, path);
+        chapterStats.push(stats);
+        totalWords += stats.words; totalSentences += stats.sentences; totalParagraphs += stats.paragraphCount;
+        longParagraphs += stats.longParagraphs; longSentences += stats.longSentences; veryLongSentences += stats.veryLongSentences;
+        dialogueAccumulator += stats.dialogueRatio;
+        for (const i of stats.frequentWords) globalWordMap.set(i.word, (globalWordMap.get(i.word) || 0) + i.count);
+        for (const i of stats.frequentProperNames) globalProperMap.set(i.word, (globalProperMap.get(i.word) || 0) + i.count);
+      }
+
+      const global = {
+        words: totalWords,
+        sentences: totalSentences,
+        paragraphCount: totalParagraphs,
+        avgSentenceWords: totalSentences ? (totalWords / totalSentences) : 0,
+        avgParagraphWords: totalParagraphs ? (totalWords / totalParagraphs) : 0,
+        longParagraphs,
+        longSentences,
+        veryLongSentences,
+        dialogueDensityLabel: densityLabel(chapterStats.length ? (dialogueAccumulator / chapterStats.length) : 0),
+        dialogueRatio: chapterStats.length ? (dialogueAccumulator / chapterStats.length) : 0
+      };
+      global.score = computeReadabilityScore(global);
+
+      return {
+        generatedAt: new Date().toISOString(),
+        chapterCount: chapterStats.length,
+        global,
+        chapters: chapterStats,
+        chaptersToWatch: chapterStats.slice().sort((a, b) => a.score - b.score).slice(0, 5),
+        frequentWords: topEntriesFromMap(globalWordMap, totalWords, 12),
+        frequentProperNames: topEntriesFromMap(globalProperMap, totalWords, 12)
+      };
+    }
+
+    function analysisBadgeFromScore(score) { return score >= 75 ? 'Fluide' : (score >= 50 ? 'Moyen' : 'Dense'); }
+
+    function buildAnalysisDiagnostic(result) {
+      const g = result.global;
+      return [
+        g.score >= 75 ? 'Lecture globalement fluide.' : g.score >= 50 ? 'Lecture de difficulté moyenne.' : 'Lecture dense, à simplifier.',
+        g.avgSentenceWords > 24 ? 'Phrases souvent longues.' : 'Longueur de phrase équilibrée.',
+        g.longParagraphs > 0 ? 'Paragraphes assez denses détectés.' : 'Paragraphes plutôt aérés.',
+        g.dialogueDensityLabel === 'fort' ? 'Forte présence de dialogues.' : g.dialogueDensityLabel === 'moyen' ? 'Dialogue présent de manière régulière.' : 'Peu de dialogues visibles.'
+      ].join(' ');
+    }
+
+    function buildAnalysisAdvice(result) {
+      const g = result.global;
+      const tips = [];
+      if ((g.longSentences / (g.sentences || 1)) > 0.2) tips.push('Beaucoup de phrases longues : l’optimisation Kindle peut améliorer le confort.');
+      if (g.dialogueDensityLabel === 'fort') tips.push('Forte présence de dialogues : BeeLine peut aider sur iPad.');
+      if ((g.longParagraphs / (g.paragraphCount || 1)) > 0.1) tips.push('Paragraphes denses : vérifie la mise en page et ajoute des respirations.');
+      if (!tips.length) tips.push('Texte déjà équilibré : conserve ce rythme pour le reste du livre.');
+      return tips.join(' ');
+    }
+
+    function renderMiniList(container, items, emptyText = '—') {
+      if (!container) return;
+      if (!items || !items.length) {
+        container.innerHTML = `<div class="muted">${escapeHtml(emptyText)}</div>`;
+        return;
+      }
+      container.innerHTML = items.map(item => `<div class="analysis-item"><div style="font-weight:700; color:var(--text-primary);">${escapeHtml(item.word)}</div><div class="analysis-row"><span>${item.count} occurrence(s)</span><span>${item.frequency}%</span></div></div>`).join('');
+    }
+
+    function renderAnalysisChapterDetail(path) {
+      if (!el.analysisChapterDetail) return;
+      const result = state.readabilityAnalysis;
+      if (!result || !path) { el.analysisChapterDetail.classList.add('hidden'); el.analysisChapterDetail.innerHTML = ''; return; }
+      const chapter = result.chapters.find(c => c.path === path);
+      if (!chapter) { el.analysisChapterDetail.classList.add('hidden'); el.analysisChapterDetail.innerHTML = ''; return; }
+      el.analysisChapterDetail.classList.remove('hidden');
+      el.analysisChapterDetail.innerHTML = `<div style="font-weight:700; color:var(--text-primary);">${escapeHtml(path.split('/').pop())}</div><div class="analysis-row"><span>Score</span><span>${chapter.score}</span></div><div class="analysis-row"><span>Mots</span><span>${formatNumber(chapter.words)}</span></div><div class="analysis-row"><span>Phrase moyenne</span><span>${chapter.avgSentenceWords.toFixed(1)} mots</span></div><div class="analysis-row"><span>Paragraphes longs</span><span>${chapter.longParagraphs}</span></div>`;
+    }
+
+    function renderAnalysisPanel() {
+      const hasBook = !!state.zip;
+      if (!hasBook) {
+        el.analysisRunBtn.disabled = true;
+        el.analysisStatus.textContent = 'Charge un EPUB pour lancer l’analyse.';
+        el.analysisEmpty.classList.remove('hidden');
+        el.analysisResults.classList.add('hidden');
+        return;
+      }
+      el.analysisRunBtn.disabled = state.analysisRunning;
+      if (state.analysisRunning) el.analysisStatus.textContent = 'Analyse en cours...';
+      else if (!state.readabilityAnalysis) el.analysisStatus.textContent = 'Prêt à analyser le livre entier.';
+      if (!state.readabilityAnalysis) { el.analysisEmpty.classList.remove('hidden'); el.analysisResults.classList.add('hidden'); return; }
+
+      const result = state.readabilityAnalysis;
+      const g = result.global;
+      el.analysisStatus.textContent = `Analyse terminée (${result.chapterCount} chapitre(s)).`;
+      el.analysisEmpty.classList.add('hidden');
+      el.analysisResults.classList.remove('hidden');
+      el.analysisTotalWords.textContent = formatNumber(g.words);
+      el.analysisTotalSentences.textContent = formatNumber(g.sentences);
+      el.analysisAvgSentence.textContent = `${g.avgSentenceWords.toFixed(1)} mots`;
+      el.analysisLongParagraphs.textContent = formatNumber(g.longParagraphs);
+      el.analysisScore.textContent = String(g.score);
+      el.analysisBadge.textContent = analysisBadgeFromScore(g.score);
+      el.analysisDialogue.textContent = g.dialogueDensityLabel;
+      el.analysisDiagnostic.textContent = buildAnalysisDiagnostic(result);
+      el.analysisAdvice.textContent = buildAnalysisAdvice(result);
+
+      el.analysisChapterList.innerHTML = result.chaptersToWatch.map((chapter, idx) => `<div class="analysis-item"><div style="font-weight:700; color:var(--text-primary);">${idx + 1}. ${escapeHtml(chapter.path.split('/').pop())}</div><div class="analysis-row"><span>Score ${chapter.score}</span><span>Phrase moy. ${chapter.avgSentenceWords.toFixed(1)}</span></div><div class="analysis-row"><span>Paragraphes longs: ${chapter.longParagraphs}</span><span>Phrases > 40 mots: ${chapter.veryLongSentences}</span></div></div>`).join('') || '<div class="muted">Aucun chapitre analysable.</div>';
+      renderMiniList(el.analysisWords, result.frequentWords, 'Pas de données');
+      renderMiniList(el.analysisProperNames, result.frequentProperNames, 'Pas de noms détectés');
+
+      const current = el.analysisChapterSelect.value;
+      el.analysisChapterSelect.innerHTML = '<option value="">— Sélectionner un chapitre —</option>';
+      for (const chapter of result.chapters) {
+        const opt = document.createElement('option');
+        opt.value = chapter.path;
+        opt.textContent = `${chapter.path.split('/').pop()} · score ${chapter.score}`;
+        el.analysisChapterSelect.appendChild(opt);
+      }
+      if (current && result.chapters.some(c => c.path === current)) el.analysisChapterSelect.value = current;
+      renderAnalysisChapterDetail(el.analysisChapterSelect.value);
+    }
+
+    async function runReadabilityAnalysis() {
+      if (!state.zip) { showToast('Charge un EPUB avant de lancer l’analyse.', 'warning'); renderAnalysisPanel(); return; }
+      state.analysisRunning = true;
+      renderAnalysisPanel();
+      await new Promise(r => setTimeout(r, 20));
+      try {
+        state.readabilityAnalysis = analyzeBookTextFiles(state.textFiles);
+        showToast('Analyse de lisibilité terminée.', 'success');
+      } catch (error) {
+        console.error(error);
+        showToast('Erreur pendant l’analyse de lisibilité.', 'error');
+      } finally {
+        state.analysisRunning = false;
+        renderAnalysisPanel();
+      }
     }
 
     function buildSearchRegex() {
@@ -1919,6 +2312,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     function addHistoryOperation(op) {
       appState.historyOps.push({ id: crypto.randomUUID(), enabled: true, ...op });
       renderHistoryPanel();
+      renderAnalysisPanel();
     }
     function removeHistoryOperation(id) {
       appState.historyOps = appState.historyOps.filter(op => op.id !== id);
@@ -2057,6 +2451,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       syncMetadataInputs();
       renderSearchResults(); renderFileList(); populateEditorSelect(); populateDiffSelect(); renderImageGallery(); renderHistoryPanel();
       syncReadingUiFromHistory();
+      renderAnalysisPanel();
       const currentPreviewPath = el.previewChapterSelect.value || state.chapterPaths[0];
       if (currentPreviewPath) renderHtmlPreview(currentPreviewPath);
       markDirty();
@@ -2298,6 +2693,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         populateEditorSelect();
         populateDiffSelect();
         renderHistoryPanel();
+        state.readabilityAnalysis = null;
+        renderAnalysisPanel();
         selectFile(state.selectedPath);
         updateStats();
         updateHeader();
@@ -3422,6 +3819,8 @@ span.br-fade { color: VAR_FADE_LIGHT; }
       state.searchTerm      = '';
       state.replaceTerm     = '';
       state.originalFiles   = {};
+      state.readabilityAnalysis = null;
+      state.analysisRunning = false;
       appState.originalBook = null;
       appState.workingBook = null;
       appState.historyOps = [];
@@ -3438,6 +3837,7 @@ span.br-fade { color: VAR_FADE_LIGHT; }
       populateEditorSelect();
       populateDiffSelect();
       renderHistoryPanel();
+      renderAnalysisPanel();
 
       // Clear search inputs
       el.searchInput.value  = '';
@@ -3458,6 +3858,8 @@ span.br-fade { color: VAR_FADE_LIGHT; }
     }
 
     el.resetBtn.addEventListener('click', resetApp);
+    el.analysisRunBtn.addEventListener('click', runReadabilityAnalysis);
+    el.analysisChapterSelect.addEventListener('change', () => renderAnalysisChapterDetail(el.analysisChapterSelect.value));
 
     // ── Diff / Comparaison ────────────────────────────────────────────────────
 
@@ -3701,6 +4103,7 @@ span.br-fade { color: VAR_FADE_LIGHT; }
     updateHeader();
     renderSearchResults();
     renderFileList();
+    renderAnalysisPanel();
   </script>
 </body>
 </html>
