@@ -1003,14 +1003,9 @@
           <button id="resetBtn" class="btn btn-secondary" title="Fermer l'EPUB en cours et repartir à zéro" style="color:var(--danger); border-color:rgba(248,113,113,0.3);" disabled>
             🗑 Nouvel EPUB
           </button>
-        </div>
-
-        <div class="header-right">
-          <select id="appThemeSelect" class="theme-select">
-            <option value="dark">🌙 Sombre</option>
-            <option value="light">☀️ Clair</option>
-            <option value="sepia">📜 Sépia</option>
-          </select>
+          <button id="rebuildBtn" class="btn btn-secondary" disabled>♻ Reconstruire</button>
+          <button id="headerCompareBtn" class="btn btn-secondary" disabled>🔀 Comparaison</button>
+          <select id="appThemeSelect" class="btn btn-secondary" style="padding:9px 10px;"><option value="dark">🌙 Sombre</option><option value="light">☀️ Clair</option><option value="sepia">📜 Sépia</option></select>
           <button id="exportBtn" class="btn btn-export" disabled>
             ⬇ Exporter l'EPUB
           </button>
