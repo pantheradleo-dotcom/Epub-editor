@@ -389,7 +389,7 @@
 
     .btn:hover { transform: translateY(-1px); }
     .btn:active { transform: translateY(0); }
-    .btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
 
     .btn-primary {
       background: linear-gradient(135deg, #2563eb, #1d4ed8);
@@ -422,6 +422,31 @@
       box-shadow: 0 5px 20px rgba(5,150,105,0.55);
     }
     .btn-export:disabled { background: var(--bg-card-2); box-shadow: none; }
+
+    body[data-theme="light"] .btn:disabled,
+    body[data-theme="sepia"] .btn:disabled {
+      opacity: 1;
+      color: var(--text-muted);
+      background: var(--bg-card-2);
+      border-color: var(--border-strong);
+      box-shadow: none;
+    }
+
+    body[data-theme="light"] .btn-export:disabled,
+    body[data-theme="sepia"] .btn-export:disabled {
+      color: var(--text-secondary);
+      background: var(--bg-card-2);
+      border-color: var(--border-strong);
+      box-shadow: none;
+    }
+
+    body[data-theme="light"] .btn-warning:disabled,
+    body[data-theme="sepia"] .btn-warning:disabled {
+      color: var(--text-secondary);
+      background: var(--bg-card-2);
+      border-color: var(--border-strong);
+      box-shadow: none;
+    }
 
     .btn-export.pulse {
       animation: exportPulse 2.2s ease-in-out infinite;
