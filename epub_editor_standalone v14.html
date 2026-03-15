@@ -1105,6 +1105,9 @@
           <button id="exportBtn" class="btn btn-export" disabled>
             ⬇ Exporter l'EPUB
           </button>
+          <button id="exportKindleBtn" class="btn btn-secondary" disabled title="Export simplifié et robuste pour Kindle">
+            📘 Export Kindle safe
+          </button>
         </div>
       </header>
 
@@ -1580,6 +1583,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       epubInput: document.getElementById('epubInput'),
       resetBtn: document.getElementById('resetBtn'),
       exportBtn: document.getElementById('exportBtn'),
+      exportKindleBtn: document.getElementById('exportKindleBtn'),
       status: document.getElementById('status'),
       toastContainer: document.getElementById('toastContainer'),
       headerTitle: document.getElementById('headerTitle'),
@@ -2489,6 +2493,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       el.statFiles.textContent = String(state.allPaths.length);
       el.statOccurrences.textContent = String(getSearchResults().reduce((sum, item) => sum + item.count, 0));
       el.exportBtn.disabled = !state.zip;
+      if (el.exportKindleBtn) el.exportKindleBtn.disabled = !state.zip;
       el.resetBtn.disabled  = !state.zip;
       if (el.rebuildBtn) el.rebuildBtn.disabled = !state.zip;
       if (el.headerCompareBtn) el.headerCompareBtn.disabled = !state.zip;
@@ -2871,6 +2876,225 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       setStatus("Remplacement ajouté à l'historique.", 'success');
     }
 
+    function cloneWorkingBookForExport() {
+      const source = appState.workingBook || {
+        textFiles: state.textFiles,
+        metadata: state.metadata,
+        replacedImages: state.replacedImages
+      };
+      const cloned = cloneBook(source);
+      cloned.textFiles = cloned.textFiles || {};
+      cloned.metadata = cloned.metadata || { ...state.metadata };
+      cloned.replacedImages = cloned.replacedImages || {};
+      return cloned;
+    }
+
+    function applyMetadataToOpfText(opfRaw, metadata) {
+      if (!opfRaw) return opfRaw;
+      const opfXml = parser.parse(opfRaw);
+      const metadataNode = opfXml?.package?.metadata;
+      if (!metadataNode) return opfRaw;
+      setDcValue(metadataNode, 'dc:title', metadata.title);
+      setDcValue(metadataNode, 'dc:creator', metadata.creator);
+      setDcValue(metadataNode, 'dc:language', metadata.language);
+      setDcValue(metadataNode, 'dc:publisher', metadata.publisher);
+      setDcValue(metadataNode, 'dc:description', metadata.description);
+      setDcValue(metadataNode, 'dc:date', metadata.date);
+      setDcValue(metadataNode, 'dc:identifier', metadata.identifier);
+      setDcValue(metadataNode, 'dc:subject', metadata.subject);
+      return `<?xml version="1.0" encoding="UTF-8"?>
+${builder.build(opfXml)}`;
+    }
+
+    function buildOrderedExportPaths() {
+      return [
+        ...state.allPaths.filter(p => p.startsWith('META-INF/')),
+        ...(state.opfPath && !state.allPaths.find(p => p.startsWith('META-INF/') && p === state.opfPath)
+          ? [state.opfPath] : []),
+        ...state.chapterPaths,
+        ...state.allPaths.filter(p =>
+          !p.startsWith('META-INF/') &&
+          p !== state.opfPath &&
+          !state.chapterPaths.includes(p) &&
+          p !== 'mimetype'
+        )
+      ];
+    }
+
+    async function writeEpubFromTextFiles(updatedTextFiles) {
+      const out = new JSZip();
+      if (state.zip.files['mimetype']) {
+        const mimetype = await state.zip.files['mimetype'].async('string');
+        out.file('mimetype', mimetype, { compression: 'STORE' });
+      }
+
+      const written = new Set(['mimetype']);
+      const orderedPaths = buildOrderedExportPaths();
+      for (const path of orderedPaths) {
+        if (written.has(path)) continue;
+        written.add(path);
+
+        if (updatedTextFiles[path] !== undefined) {
+          out.file(path, updatedTextFiles[path]);
+        } else if (state.zip.files[path]) {
+          const fileData = await state.zip.files[path].async('uint8array');
+          out.file(path, fileData);
+        }
+      }
+
+      return out.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+    }
+
+    function triggerBlobDownload(blob, outputName) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = outputName;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
+
+    function stripBeeLineMarkup(html) {
+      const doc = new DOMParser().parseFromString(html || '', 'text/html');
+      doc.querySelectorAll('span.bl-s').forEach(node => node.replaceWith(...Array.from(node.childNodes)));
+      doc.querySelectorAll('[class]').forEach(node => {
+        const kept = Array.from(node.classList).filter(cls => cls && cls !== 'bl-s' && !cls.startsWith('beeline'));
+        if (kept.length) node.setAttribute('class', kept.join(' '));
+        else node.removeAttribute('class');
+      });
+      return serializeHtmlDoc(doc);
+    }
+
+    function simplifyBionicMarkup(html) {
+      const doc = new DOMParser().parseFromString(html || '', 'text/html');
+      doc.querySelectorAll('b.br').forEach(node => {
+        if (node.tagName.toLowerCase() === 'b') return;
+        const b = doc.createElement('b');
+        b.textContent = node.textContent || '';
+        node.replaceWith(b);
+      });
+      doc.querySelectorAll('span.br-fade').forEach(node => node.replaceWith(...Array.from(node.childNodes)));
+      doc.querySelectorAll('span[class], b[class], strong[class]').forEach(node => {
+        const kept = Array.from(node.classList).filter(cls => cls === 'br');
+        if (kept.length) node.setAttribute('class', kept.join(' '));
+        else node.removeAttribute('class');
+      });
+      return serializeHtmlDoc(doc);
+    }
+
+    function simplifyCssForKindle(cssText) {
+      const baseCss = `body {
+  font-family: serif;
+  line-height: 1.6;
+  text-align: left;
+  hyphens: auto;
+}
+
+p {
+  margin: 0 0 0.8em 0;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}`;
+      if (!cssText || typeof cssText !== 'string') return baseCss;
+      const lines = cssText
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean)
+        .filter(line => !/(animation|transition|transform|gradient|filter|box-shadow|text-shadow|@keyframes)/i.test(line));
+      return `${baseCss}
+
+/* Source CSS réduit pour Kindle */
+${lines.slice(0, 80).join('\n')}`;
+    }
+
+    function sanitizeChapterForKindle(html, options = {}) {
+      let out = html || '';
+      out = stripBeeLineMarkup(out);
+      out = simplifyBionicMarkup(out);
+
+      const doc = new DOMParser().parseFromString(out, 'text/html');
+      let strippedScripts = 0;
+      let removedHandlers = 0;
+      let cleanedStyles = 0;
+      let removedClasses = 0;
+
+      doc.querySelectorAll('script').forEach(node => { node.remove(); strippedScripts += 1; });
+
+      doc.querySelectorAll('*').forEach(node => {
+        Array.from(node.attributes).forEach(attr => {
+          const name = attr.name.toLowerCase();
+          if (name.startsWith('on')) {
+            node.removeAttribute(attr.name);
+            removedHandlers += 1;
+          }
+        });
+
+        if (node.hasAttribute('style')) {
+          const style = node.getAttribute('style') || '';
+          const keep = style
+            .split(';')
+            .map(s => s.trim())
+            .filter(Boolean)
+            .filter(s => /^(text-align|font-style|font-weight|display|width|max-width|height|margin|padding)\s*:/i.test(s));
+          if (keep.length) node.setAttribute('style', keep.join('; '));
+          else node.removeAttribute('style');
+          cleanedStyles += 1;
+        }
+
+        if (node.tagName.toLowerCase() === 'img') {
+          const src = node.getAttribute('src');
+          const alt = node.getAttribute('alt');
+          Array.from(node.attributes).forEach(attr => node.removeAttribute(attr.name));
+          if (src) node.setAttribute('src', src);
+          node.setAttribute('alt', alt || '');
+          return;
+        }
+
+        if (node.hasAttribute('class')) {
+          const kept = Array.from(node.classList).filter(cls => ['br'].includes(cls));
+          if (kept.length) node.setAttribute('class', kept.join(' '));
+          else node.removeAttribute('class');
+          removedClasses += 1;
+        }
+      });
+
+      doc.querySelectorAll('span').forEach(node => {
+        const hasAttrs = node.attributes.length > 0;
+        const txt = (node.textContent || '').trim();
+        if (!hasAttrs && !node.children.length && !txt) {
+          node.remove();
+          return;
+        }
+        if (!hasAttrs) node.replaceWith(...Array.from(node.childNodes));
+      });
+
+      doc.querySelectorAll('style').forEach(styleNode => {
+        styleNode.textContent = simplifyCssForKindle(styleNode.textContent || '');
+      });
+
+      if (doc.head && !doc.head.querySelector('style[data-kindle-safe]')) {
+        const style = doc.createElement('style');
+        style.setAttribute('data-kindle-safe', 'true');
+        style.textContent = simplifyCssForKindle('');
+        doc.head.appendChild(style);
+      }
+
+      return {
+        html: serializeHtmlDoc(doc),
+        stats: {
+          strippedScripts,
+          removedHandlers,
+          cleanedStyles,
+          removedClasses,
+          beelineRemoved: true,
+          bionicSimplified: options.bionicSimplify !== false
+        }
+      };
+    }
+
     async function exportEpub() {
       if (!state.zip || !state.opfPath) {
         setStatus('Aucun EPUB chargé.');
@@ -2880,77 +3104,67 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       try {
         syncMetadataState();
         setStatus('Construction du nouvel EPUB...');
-        const out = new JSZip();
-        const updatedTextFiles = { ...state.textFiles };
-        const opfRaw = updatedTextFiles[state.opfPath];
-        const opfXml = parser.parse(opfRaw);
-        const metadataNode = opfXml?.package?.metadata;
-
-        if (metadataNode) {
-          setDcValue(metadataNode, 'dc:title', state.metadata.title);
-          setDcValue(metadataNode, 'dc:creator', state.metadata.creator);
-          setDcValue(metadataNode, 'dc:language', state.metadata.language);
-          setDcValue(metadataNode, 'dc:publisher', state.metadata.publisher);
-          setDcValue(metadataNode, 'dc:description', state.metadata.description);
-          setDcValue(metadataNode, 'dc:date', state.metadata.date);
-          setDcValue(metadataNode, 'dc:identifier', state.metadata.identifier);
-          setDcValue(metadataNode, 'dc:subject', state.metadata.subject);
-          updatedTextFiles[state.opfPath] = `<?xml version="1.0" encoding="UTF-8"?>\n${builder.build(opfXml)}`;
-        }
-
-        if (state.zip.files['mimetype']) {
-          const mimetype = await state.zip.files['mimetype'].async('string');
-          out.file('mimetype', mimetype, { compression: 'STORE' });
-        }
-
-        // Write files in a deterministic order that preserves EPUB structure:
-        // 1. META-INF first (container.xml, encryption.xml, etc.)
-        // 2. OPF file
-        // 3. Spine chapters in spine order
-        // 4. All remaining files
-        const written = new Set(['mimetype']);
-
-        const orderedPaths = [
-          // META-INF directory first
-          ...state.allPaths.filter(p => p.startsWith('META-INF/')),
-          // OPF file
-          ...(state.opfPath && !state.allPaths.find(p => p.startsWith('META-INF/') && p === state.opfPath)
-            ? [state.opfPath] : []),
-          // Spine chapters in exact spine order
-          ...state.chapterPaths,
-          // Everything else (images, fonts, CSS, NCX, etc.)
-          ...state.allPaths.filter(p =>
-            !p.startsWith('META-INF/') &&
-            p !== state.opfPath &&
-            !state.chapterPaths.includes(p) &&
-            p !== 'mimetype'
-          )
-        ];
-
-        for (const path of orderedPaths) {
-          if (written.has(path)) continue;
-          written.add(path);
-
-          if (updatedTextFiles[path] !== undefined) {
-            out.file(path, updatedTextFiles[path]);
-          } else if (state.zip.files[path]) {
-            const fileData = await state.zip.files[path].async('uint8array');
-            out.file(path, fileData);
-          }
-        }
-
-        const blob = await out.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+        const bookForExport = cloneWorkingBookForExport();
+        const updatedTextFiles = { ...(bookForExport.textFiles || {}) };
+        updatedTextFiles[state.opfPath] = applyMetadataToOpfText(updatedTextFiles[state.opfPath], state.metadata);
+        const blob = await writeEpubFromTextFiles(updatedTextFiles);
         const outputName = state.sourceFileName.replace(/\.epub$/i, '') + '-edited.epub';
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = outputName;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        triggerBlobDownload(blob, outputName);
         setStatus(`Export terminé : ${outputName}`, 'success');
         markClean();
       } catch (error) {
         console.error(error);
         setStatus(error?.message || "Erreur pendant l'export EPUB.");
+      }
+    }
+
+    async function exportKindleSafeEpub() {
+      if (!state.zip || !state.opfPath) {
+        showToast('Aucun EPUB chargé.', 'warning');
+        return;
+      }
+
+      try {
+        syncMetadataState();
+        showToast('Export Kindle safe en cours...', 'info');
+
+        const exportBook = cloneWorkingBookForExport();
+        const updatedTextFiles = { ...(exportBook.textFiles || {}) };
+        const chapterTargets = state.chapterPaths.length ? state.chapterPaths : state.allPaths.filter(isChapterLike);
+
+        let chaptersSimplified = 0;
+        let scriptsRemoved = 0;
+        let handlersRemoved = 0;
+        let stylesSimplified = 0;
+
+        for (const path of chapterTargets) {
+          const src = updatedTextFiles[path];
+          if (!src) continue;
+          const { html, stats } = sanitizeChapterForKindle(src, { bionicSimplify: true });
+          updatedTextFiles[path] = html;
+          chaptersSimplified += 1;
+          scriptsRemoved += stats.strippedScripts;
+          handlersRemoved += stats.removedHandlers;
+          stylesSimplified += stats.cleanedStyles;
+        }
+
+        for (const path of state.allPaths.filter(p => /\.css$/i.test(p))) {
+          if (updatedTextFiles[path] === undefined) continue;
+          updatedTextFiles[path] = simplifyCssForKindle(updatedTextFiles[path]);
+        }
+
+        updatedTextFiles[state.opfPath] = applyMetadataToOpfText(updatedTextFiles[state.opfPath], state.metadata);
+
+        const blob = await writeEpubFromTextFiles(updatedTextFiles);
+        const outputName = state.sourceFileName.replace(/\.epub$/i, '') + '-kindle-safe.epub';
+        triggerBlobDownload(blob, outputName);
+
+        showToast('Export Kindle safe terminé', 'success');
+        showToast(`BeeLine retiré pour compatibilité Kindle · ${chaptersSimplified} chapitres simplifiés · CSS Kindle minimal appliqué`, 'info', 5500);
+        setStatus(`Export Kindle safe terminé : ${outputName} (scripts retirés: ${scriptsRemoved}, handlers retirés: ${handlersRemoved}, styles simplifiés: ${stylesSimplified})`, 'success');
+      } catch (error) {
+        console.error(error);
+        setStatus(error?.message || "Erreur pendant l'export Kindle safe.", 'error');
       }
     }
 
@@ -4081,6 +4295,7 @@ span.br-fade { color: VAR_FADE_LIGHT; }
     el.refreshSearchBtn.addEventListener('click', renderSearchResults);
     el.replaceAllBtn.addEventListener('click', applyReplaceAll);
     el.exportBtn.addEventListener('click', exportEpub);
+    if (el.exportKindleBtn) el.exportKindleBtn.addEventListener('click', exportKindleSafeEpub);
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
