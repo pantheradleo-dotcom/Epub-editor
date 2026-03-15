@@ -1925,6 +1925,42 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       return book;
     }
 
+    function isReadingOp(op) {
+      return ['bionicApply', 'beelineApply', 'kindleOptimize'].includes(op?.type);
+    }
+
+    function shouldApplyReplaceTextToPath(op, path) {
+      if (!path || !op) return false;
+      if (op.searchAllFiles) return isChapterLike(path);
+      const scope = state.chapterPaths.length ? state.chapterPaths : state.allPaths.filter(isChapterLike);
+      return scope.includes(path);
+    }
+
+    function getPreviewSourceChapter(path) {
+      if (!path) return '';
+
+      const original = appState.originalBook?.textFiles?.[path];
+      let src = typeof original === 'string' ? original : (state.textFiles[path] || '');
+
+      if (!appState.originalBook || !appState.historyOps.length) return src;
+
+      for (const op of appState.historyOps) {
+        if (!op?.enabled || isReadingOp(op)) continue;
+
+        if (op.type === 'replaceText') {
+          if (!shouldApplyReplaceTextToPath(op, path) || !op.search) continue;
+          const pattern = op.wholeWord ? `\\b${escapeRegExp(op.search)}\\b` : escapeRegExp(op.search);
+          const regex = new RegExp(pattern, op.caseSensitive ? 'g' : 'gi');
+          const out = replaceInDom(src, regex, (m) => op.caseSensitive ? op.replace : smartReplace(m, op.replace));
+          src = out.html;
+        } else if (op.type === 'chapterEdit' && op.filePath === path) {
+          src = typeof op.content === 'string' ? op.content : src;
+        }
+      }
+
+      return src;
+    }
+
     async function rebuildWorkingBookFromHistory() {
       if (!appState.originalBook) return;
       const rebuilt = cloneBook(appState.originalBook);
@@ -2936,9 +2972,7 @@ span.br-fade { color: VAR_FADE_LIGHT; }
           return;
         }
 
-        const src = (state.bionicOriginals && state.bionicOriginals[path])
-          ? state.bionicOriginals[path]
-          : (state.textFiles[path] || '');
+        const src = getPreviewSourceChapter(path);
         if (!src) {
           el.bionicPreview.innerHTML = '<span class="muted">Chapitre introuvable.</span>';
           return;
